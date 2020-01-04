@@ -2,8 +2,6 @@ package ieee754;
 
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 
 import com.ibm.cuda.Cuda;
 import com.ibm.cuda.CudaBuffer;
@@ -50,8 +48,15 @@ public class FPClassify {
 						-0.0, +0.0, //
 						-1.0, +1.0, //
 						Double.NaN, //
+						Double.longBitsToDouble(0x7FF0000000000000L), //
 						Double.longBitsToDouble(0x7FF0000000000001L), //
-						Double.longBitsToDouble(0x7FFFFFFFFFFFFFFFL));
+						Double.longBitsToDouble(0x7FF0000000000002L), //
+						Double.longBitsToDouble(0x7FFFFFFFFFFFFFFFL), //
+						Double.longBitsToDouble(0xFFF0000000000000L), //
+						Double.longBitsToDouble(0xFFF0000000000001L), //
+						Double.longBitsToDouble(0xFFF8000000000000L), //
+						Double.longBitsToDouble(0xFFFFFFFFFFFFFFFFL) //
+				);
 			} finally {
 				module.unload();
 			}
@@ -60,31 +65,32 @@ public class FPClassify {
 		}
 	}
 
-	private static void showClass(double value, int fpclass) {
-		// finite     0x0001
-		// infinite   0x0002
-		// number     0x0010
-		// notanumber 0x0020
-		// normal     0x0100
-		// subnormal  0x0200
+	// finite     0x0001
+	// infinite   0x0002
+	// number     0x0010
+	// notanumber 0x0020
+	// normal     0x0100
+	// subnormal  0x0200
 
-		System.out.format("0x%016X  %-12a 0x%08X%n", Double.doubleToRawLongBits(value), value, fpclass);
+	private static void showClass(long[] data) {
+		long input = data[0];
+		long output = data[1];
+		long fpclass = data[2];
+
+		System.out.format("0x%016X -> 0x%016X  %-12a 0x%08X%n", //
+				input, output, Double.longBitsToDouble(output), fpclass);
 	}
 
 	private static void test(CudaDevice device, CudaKernel fpclassify, double... values) throws CudaException {
-		ByteBuffer bytes = java.nio.ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN);
-
-		try (CudaBuffer buffer = new CudaBuffer(device, 12)) {
+		try (CudaBuffer buffer = new CudaBuffer(device, 24)) {
 			for (double value : values) {
-				bytes.putDouble(0, value);
-				bytes.putInt(8, 0);
+				long[] data = new long[] { Double.doubleToRawLongBits(value), -2, -3 };
 
-				buffer.copyFrom(bytes);
+				buffer.copyFrom(data);
 				fpclassify.launch(new CudaGrid(1, 1), buffer);
-				bytes.rewind();
-				buffer.copyTo(bytes);
+				buffer.copyTo(data);
 
-				showClass(value, bytes.getInt(8));
+				showClass(data);
 			}
 		}
 	}

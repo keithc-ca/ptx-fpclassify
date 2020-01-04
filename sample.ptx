@@ -35,5 +35,7 @@ fpclassify(.param .u64 _data)
 	testp.subnormal.f64 p0,value;
 	@p0 or.b32 class,class,0x0200;
 
-	st.global.b32 [data+8],class;
+	st.global.f64 [data+8],value;
+	st.global.b32 [data+16],class;
+	st.global.b32 [data+20],0;
 }

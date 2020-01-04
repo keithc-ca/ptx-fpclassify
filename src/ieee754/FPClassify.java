@@ -2,6 +2,9 @@ package ieee754;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import com.ibm.cuda.Cuda;
 import com.ibm.cuda.CudaBuffer;
@@ -44,15 +47,14 @@ public class FPClassify {
 				CudaKernel fpclassify = new CudaKernel(module, "fpclassify");
 
 				test(device, fpclassify, //
-						Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, //
+						Double.NEGATIVE_INFINITY, //
 						-0.0, +0.0, //
 						-1.0, +1.0, //
-						Double.NaN, //
-						Double.longBitsToDouble(0x7FF0000000000000L), //
+						Double.POSITIVE_INFINITY, //
 						Double.longBitsToDouble(0x7FF0000000000001L), //
 						Double.longBitsToDouble(0x7FF0000000000002L), //
+						Double.longBitsToDouble(0x7FF8000000000000L), //
 						Double.longBitsToDouble(0x7FFFFFFFFFFFFFFFL), //
-						Double.longBitsToDouble(0xFFF0000000000000L), //
 						Double.longBitsToDouble(0xFFF0000000000001L), //
 						Double.longBitsToDouble(0xFFF8000000000000L), //
 						Double.longBitsToDouble(0xFFFFFFFFFFFFFFFFL) //
@@ -65,32 +67,69 @@ public class FPClassify {
 		}
 	}
 
-	// finite     0x0001
-	// infinite   0x0002
-	// number     0x0010
-	// notanumber 0x0020
-	// normal     0x0100
-	// subnormal  0x0200
+	private static String makeClassString(long fpclass) {
+		List<String> classes = new ArrayList<>();
 
-	private static void showClass(long[] data) {
+		if ((fpclass & 0x0001) != 0) {
+			classes.add("finite");
+		}
+
+		if ((fpclass & 0x0002) != 0) {
+			classes.add("infinite");
+		}
+
+		if ((fpclass & 0x0100) != 0) {
+			classes.add("normal");
+		}
+
+		if ((fpclass & 0x0200) != 0) {
+			classes.add("subnormal");
+		}
+
+		if ((fpclass & 0x0010) != 0) {
+			classes.add("number");
+		}
+
+		if ((fpclass & 0x0020) != 0) {
+			classes.add("notanumber");
+		}
+
+		if ((fpclass & ~0x0333L) != 0) {
+			classes.add("unknown");
+		}
+
+		return classes.stream().collect(Collectors.joining(" "));
+	}
+
+	private static void showClass(double value, long[] data) {
+		long rawValue = Double.doubleToRawLongBits(value);
 		long input = data[0];
 		long output = data[1];
 		long fpclass = data[2];
+		String fpclassAsString = makeClassString(fpclass);
 
-		System.out.format("0x%016X -> 0x%016X  %-12a 0x%08X%n", //
-				input, output, Double.longBitsToDouble(output), fpclass);
+		if (input == rawValue && output == rawValue) {
+			System.out.format("0x%016X  %-12a 0x%03X %s%n", //
+					input, value, fpclass, fpclassAsString);
+		} else {
+			System.out.format("0x%016X -> 0x%016X  %-12a 0x%03X %s%n", //
+					rawValue, output, Double.longBitsToDouble(output), fpclass, fpclassAsString);
+		}
 	}
 
 	private static void test(CudaDevice device, CudaKernel fpclassify, double... values) throws CudaException {
 		try (CudaBuffer buffer = new CudaBuffer(device, 24)) {
 			for (double value : values) {
-				long[] data = new long[] { Double.doubleToRawLongBits(value), -2, -3 };
+				double[] inData = new double[] { value, Double.NaN, Double.NaN };
 
-				buffer.copyFrom(data);
+				buffer.copyFrom(inData);
 				fpclassify.launch(new CudaGrid(1, 1), buffer);
-				buffer.copyTo(data);
 
-				showClass(data);
+				long[] outData = new long[inData.length];
+
+				buffer.copyTo(outData);
+
+				showClass(value, outData);
 			}
 		}
 	}

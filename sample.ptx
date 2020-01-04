@@ -1,0 +1,39 @@
+.version 3.2
+.target sm_30
+.address_size 64
+
+.visible .entry
+fpclassify(.param .u64 _data)
+.maxntid 256,1,1
+{
+	.reg .u64 data;
+	.reg .f64 value;
+	.reg .b32 class;
+	.reg .pred p0;
+
+	ld.param.u64 data,[_data];
+	cvta.to.global.u64 data,data;
+
+	ld.global.f64 value,[data];
+	mov.b32 class,0;
+
+	testp.finite.f64 p0,value;
+	@p0 or.b32 class,class,0x0001;
+
+	testp.infinite.f64 p0,value;
+	@p0 or.b32 class,class,0x0002;
+
+	testp.number.f64 p0,value;
+	@p0 or.b32 class,class,0x0010;
+
+	testp.notanumber.f64 p0,value;
+	@p0 or.b32 class,class,0x0020;
+
+	testp.normal.f64 p0,value;
+	@p0 or.b32 class,class,0x0100;
+
+	testp.subnormal.f64 p0,value;
+	@p0 or.b32 class,class,0x0200;
+
+	st.global.b32 [data+8],class;
+}

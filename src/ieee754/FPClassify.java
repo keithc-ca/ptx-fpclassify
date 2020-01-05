@@ -3,6 +3,7 @@ package ieee754;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -15,6 +16,33 @@ import com.ibm.cuda.CudaKernel;
 import com.ibm.cuda.CudaModule;
 
 public class FPClassify {
+
+	private static void compared(CudaDevice device, CudaKernel compared, double[] values) throws CudaException {
+		try (CudaBuffer buffer = new CudaBuffer(device, 20)) {
+			for (int i = 0; i < values.length; ++i) {
+				double lhs = values[i];
+				long rawLhs = Double.doubleToRawLongBits(lhs);
+
+				for (int j = 0; j < values.length; ++j) {
+					double rhs = values[j];
+					long rawRhs = Double.doubleToRawLongBits(rhs);
+
+					buffer.copyFrom(new double[] { lhs, rhs });
+					compared.launch(new CudaGrid(1, 1), buffer);
+
+					int[] outData = new int[1];
+
+					buffer.atOffset(Double.BYTES * 2).copyTo(outData);
+
+					int gpuCompare = outData[0];
+					int javaCompare = Double.compare(lhs, rhs) > 0 ? 1 : 0;
+
+					System.out.format("0x%016X %-12a > 0x%016X %-12a => %d:%d%n", //
+							rawLhs, lhs, rawRhs, rhs, javaCompare, gpuCompare);
+				}
+			}
+		}
+	}
 
 	private static CudaModule load(CudaDevice device, String fileName) {
 		try (FileInputStream input = new FileInputStream(fileName)) {
@@ -43,22 +71,32 @@ public class FPClassify {
 				return;
 			}
 
+			double[] values = { //
+					Double.NEGATIVE_INFINITY, //
+					-0.0, +0.0, //
+					-1.0, +1.0, //
+					Double.POSITIVE_INFINITY, //
+					Double.longBitsToDouble(0x7FF0000000000001L), //
+					Double.longBitsToDouble(0x7FF0000000000002L), //
+					Double.longBitsToDouble(0x7FF8000000000000L), //
+					Double.longBitsToDouble(0x7FFFFFFFFFFFFFFFL), //
+					Double.longBitsToDouble(0xFFF0000000000001L), //
+					Double.longBitsToDouble(0xFFF8000000000000L), //
+					Double.longBitsToDouble(0xFFFFFFFFFFFFFFFFL) //
+			};
+
+			Arrays.sort(values);
+
 			try {
 				CudaKernel fpclassify = new CudaKernel(module, "fpclassify");
 
-				test(device, fpclassify, //
-						Double.NEGATIVE_INFINITY, //
-						-0.0, +0.0, //
-						-1.0, +1.0, //
-						Double.POSITIVE_INFINITY, //
-						Double.longBitsToDouble(0x7FF0000000000001L), //
-						Double.longBitsToDouble(0x7FF0000000000002L), //
-						Double.longBitsToDouble(0x7FF8000000000000L), //
-						Double.longBitsToDouble(0x7FFFFFFFFFFFFFFFL), //
-						Double.longBitsToDouble(0xFFF0000000000001L), //
-						Double.longBitsToDouble(0xFFF8000000000000L), //
-						Double.longBitsToDouble(0xFFFFFFFFFFFFFFFFL) //
-				);
+				test(device, fpclassify, values);
+
+				System.out.println();
+
+				CudaKernel compared = new CudaKernel(module, "compared");
+
+				compared(device, compared, values);
 			} finally {
 				module.unload();
 			}

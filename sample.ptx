@@ -3,39 +3,119 @@
 .address_size 64
 
 .visible .entry
-fpclassify(.param .u64 _data)
+fpclassify(.param .u64 _ptr)
 .maxntid 256,1,1
 {
-	.reg .u64 data;
+	.reg .u64 ptr;
 	.reg .f64 value;
 	.reg .b32 class;
-	.reg .pred p0;
+	.reg .pred p;
 
-	ld.param.u64 data,[_data];
-	cvta.to.global.u64 data,data;
+	ld.param.u64 ptr,[_ptr];
+	cvta.to.global.u64 ptr,ptr;
 
-	ld.global.f64 value,[data];
+	ld.global.f64 value,[ptr];
 	mov.b32 class,0;
 
-	testp.finite.f64 p0,value;
-	@p0 or.b32 class,class,0x0001;
+	testp.finite.f64 p,value;
+	@p or.b32 class,class,0x0001;
 
-	testp.infinite.f64 p0,value;
-	@p0 or.b32 class,class,0x0002;
+	testp.infinite.f64 p,value;
+	@p or.b32 class,class,0x0002;
 
-	testp.number.f64 p0,value;
-	@p0 or.b32 class,class,0x0010;
+	testp.number.f64 p,value;
+	@p or.b32 class,class,0x0010;
 
-	testp.notanumber.f64 p0,value;
-	@p0 or.b32 class,class,0x0020;
+	testp.notanumber.f64 p,value;
+	@p or.b32 class,class,0x0020;
 
-	testp.normal.f64 p0,value;
-	@p0 or.b32 class,class,0x0100;
+	testp.normal.f64 p,value;
+	@p or.b32 class,class,0x0100;
 
-	testp.subnormal.f64 p0,value;
-	@p0 or.b32 class,class,0x0200;
+	testp.subnormal.f64 p,value;
+	@p or.b32 class,class,0x0200;
 
-	st.global.f64 [data+8],value;
-	st.global.b32 [data+16],class;
-	st.global.b32 [data+20],0;
+	st.global.f64 [ptr+8],value;
+	st.global.b32 [ptr+16],class;
+	st.global.b32 [ptr+20],0;
+}
+
+.visible .entry
+compared(.param .u64 _ptr)
+.maxntid 256,1,1
+{
+	.reg .u64 ptr;
+	.reg .f64 a,b;
+	.reg .s64 i,j;
+	.reg .pred p,q;
+
+	ld.param.u64 ptr,[_ptr];
+	cvta.to.global.u64 ptr,ptr;
+
+	ld.global.f64 a,[ptr+0];
+	ld.global.f64 b,[ptr+8];
+
+	// Floating point NaN values need special handling because they're also
+	// our out-of-bounds signal. So, if v[index1] is a NaN, we don't want to
+	// swap. Otherwise if v[index0] is a NaN, or larger than v[index1] we
+	// need to swap. The 'gtu' comparison is true if the first operand is
+	// larger than the second or if either operand is NaN. By ruling out
+	// the second operand being a NaN, we achieve the desired test.
+	testp.number.f64 q,b;
+	setp.gtu.and.f64 p,a,b,q;
+
+	// Finally we must order -0.0 before +0.0.
+
+	// copy raw floating point bits to scalar registers
+	@!p mov.b64 i,a;
+	@!p mov.b64 j,b;
+
+	// compare for floating point equality
+	@!p setp.eq.f64 q,a,b;
+
+	// compare as scalars, updating the result
+	@!p setp.gt.and.s64 p,i,j,q;
+	
+	@p  st.global.b8 [ptr+16],1;
+	@!p st.global.b8 [ptr+16],0;
+}
+
+.visible .entry
+comparef(.param .u64 _ptr)
+.maxntid 256,1,1
+{
+	.reg .u64 ptr;
+	.reg .f32 a,b;
+	.reg .s32 i,j;
+	.reg .pred p,q;
+
+	ld.param.u64 ptr,[_ptr];
+	cvta.to.global.u64 ptr,ptr;
+
+	ld.global.f32 a,[ptr+0];
+	ld.global.f32 b,[ptr+4];
+
+	// Floating point NaN values need special handling because they're also
+	// our out-of-bounds signal. So, if v[index1] is a NaN, we don't want to
+	// swap. Otherwise if v[index0] is a NaN, or larger than v[index1] we
+	// need to swap. The 'gtu' comparison is true if the first operand is
+	// larger than the second or if either operand is NaN. By ruling out
+	// the second operand being a NaN, we achieve the desired test.
+	testp.number.f32 q,b;
+	setp.gtu.and.f32 p,a,b,q;
+
+	// Finally we must order -0.0 before +0.0.
+
+	// copy raw floating point bits to scalar registers
+	@!p mov.b32 i,a;
+	@!p mov.b32 j,b;
+
+	// compare for floating point equality
+	@!p setp.eq.f32 q,a,b;
+
+	// compare as scalars, updating the result
+	@!p setp.gt.and.s32 p,i,j,q;
+	
+	@p  st.global.b8 [ptr+8],1;
+	@!p st.global.b8 [ptr+8],0;
 }
